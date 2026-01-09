@@ -1,0 +1,13 @@
+[package]
+name = "rhythm_mod"
+version = "0.1.0"
+edition = "2021"
+description = "A terminal-based taiko drum rhythm game with MOD tracker music"
+license = "MIT"
+
+[dependencies]
+ratatui = "0.28"
+crossterm = "0.28"
+rodio = "0.19"
+anyhow = "1.0"
+mod_player = "0.1"

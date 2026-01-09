@@ -1,0 +1,585 @@
+use ratatui::{
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+    Frame,
+};
+
+use crate::chart::NoteType;
+use crate::game::{Game, HitResult};
+
+const SCROLL_WINDOW_MS: u64 = 2200;
+const NOTE_WIDTH: usize = 5;
+
+// Color palette - neon arcade
+const COLOR_DON: Color = Color::Rgb(255, 82, 82);      // Hot red
+const COLOR_KA: Color = Color::Rgb(0, 229, 255);       // Electric cyan
+const COLOR_GOLD: Color = Color::Rgb(255, 215, 0);     // Gold accent
+const COLOR_TRACK: Color = Color::Rgb(60, 60, 80);     // Muted purple-gray
+const COLOR_DIM: Color = Color::Rgb(80, 80, 100);      // Slightly brighter track
+const COLOR_BG_ACCENT: Color = Color::Rgb(30, 30, 45); // Dark purple
+
+// Equalizer channel colors - classic MOD tracker style
+const EQ_COLORS: [Color; 4] = [
+    Color::Rgb(255, 100, 100),  // CH1 - Red
+    Color::Rgb(100, 255, 150),  // CH2 - Green
+    Color::Rgb(100, 180, 255),  // CH3 - Blue
+    Color::Rgb(255, 220, 100),  // CH4 - Yellow
+];
+
+pub fn render(frame: &mut Frame, game: &Game) {
+    let size = frame.area();
+
+    // Main layout
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4),  // Header
+            Constraint::Length(9),  // Game area
+            Constraint::Length(9),  // Equalizer
+            Constraint::Min(3),     // Feedback
+            Constraint::Length(2),  // Footer
+        ])
+        .split(size);
+
+    render_header(frame, chunks[0], game);
+    render_game_area(frame, chunks[1], game);
+    render_equalizer(frame, chunks[2], game);
+    render_feedback(frame, chunks[3], game);
+    render_footer(frame, chunks[4]);
+}
+
+fn render_header(frame: &mut Frame, area: Rect, game: &Game) {
+    // Calculate soul percentage
+    let total = game.chart.notes.len() as f64;
+    let hit = (game.perfect_count + game.good_count) as f64;
+    let soul_pct = if total > 0.0 { (hit / total * 100.0).min(100.0) } else { 0.0 };
+
+    // Build custom gauge with block characters
+    let gauge_width = 20;
+    let filled = ((soul_pct / 100.0) * gauge_width as f64) as usize;
+
+    let gauge_color = if soul_pct >= 80.0 {
+        COLOR_GOLD
+    } else if soul_pct >= 50.0 {
+        COLOR_DON
+    } else {
+        Color::White
+    };
+
+    // Top border
+    let border_top = "─".repeat(area.width.saturating_sub(2) as usize);
+    frame.render_widget(
+        Paragraph::new(format!("┌{}┐", border_top))
+            .style(Style::default().fg(COLOR_DIM)),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+
+    // Title line
+    let title = format!(" ◆ {} ", game.chart.title);
+    let score_str = format!("{:08}", game.score);
+
+    let mut title_spans = vec![
+        Span::styled("│", Style::default().fg(COLOR_DIM)),
+        Span::styled(" ▄▀▀▀▄ ", Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD)),
+        Span::styled(&title, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+    ];
+
+    // Pad to align score
+    let used = 10 + title.len();
+    let padding = (area.width as usize).saturating_sub(used + score_str.len() + 4);
+    title_spans.push(Span::raw(" ".repeat(padding)));
+    title_spans.push(Span::styled(&score_str, Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD)));
+    title_spans.push(Span::styled(" │", Style::default().fg(COLOR_DIM)));
+
+    frame.render_widget(
+        Paragraph::new(Line::from(title_spans)),
+        Rect::new(area.x, area.y + 1, area.width, 1),
+    );
+
+    // Soul gauge line
+    let gauge_full: String = "█".repeat(filled);
+    let gauge_empty: String = "░".repeat(gauge_width - filled);
+
+    let mut gauge_spans = vec![
+        Span::styled("│", Style::default().fg(COLOR_DIM)),
+        Span::styled(" SOUL ", Style::default().fg(Color::White)),
+        Span::styled("▐", Style::default().fg(gauge_color)),
+        Span::styled(&gauge_full, Style::default().fg(gauge_color)),
+        Span::styled(&gauge_empty, Style::default().fg(COLOR_TRACK)),
+        Span::styled("▌", Style::default().fg(gauge_color)),
+        Span::styled(format!(" {:3.0}%", soul_pct), Style::default().fg(Color::White)),
+    ];
+
+    let gauge_padding = (area.width as usize).saturating_sub(38);
+    gauge_spans.push(Span::raw(" ".repeat(gauge_padding)));
+    gauge_spans.push(Span::styled("│", Style::default().fg(COLOR_DIM)));
+
+    frame.render_widget(
+        Paragraph::new(Line::from(gauge_spans)),
+        Rect::new(area.x, area.y + 2, area.width, 1),
+    );
+
+    // Bottom border
+    frame.render_widget(
+        Paragraph::new(format!("├{}┤", border_top))
+            .style(Style::default().fg(COLOR_DIM)),
+        Rect::new(area.x, area.y + 3, area.width, 1),
+    );
+}
+
+fn render_game_area(frame: &mut Frame, area: Rect, game: &Game) {
+    if area.width < 50 || area.height < 9 {
+        return;
+    }
+
+    let current_time = game.current_time_ms();
+
+    // The drum target - bold geometric design
+    // 7 lines tall, centered vertically
+    let (drum_color, drum_glow) = match game.last_hit_result {
+        Some(HitResult::Perfect) => (COLOR_GOLD, Color::Yellow),
+        Some(HitResult::Good) => (Color::Green, Color::LightGreen),
+        Some(HitResult::Miss) | Some(HitResult::Wrong) => (Color::Red, Color::LightRed),
+        None => (Color::White, COLOR_DIM),
+    };
+
+    let drum_art = [
+        ("   ▄▄███▄▄   ", drum_glow),
+        ("  █▓▓▓▓▓▓▓█  ", drum_color),
+        (" █▓▓█████▓▓█ ", drum_color),
+        (" █▓██   ██▓█ ", drum_color),
+        (" █▓▓█████▓▓█ ", drum_color),
+        ("  █▓▓▓▓▓▓▓█  ", drum_color),
+        ("   ▀▀███▀▀   ", drum_glow),
+    ];
+
+    let drum_width = 14;
+    let track_start = drum_width + 3;
+    let track_width = (area.width as usize).saturating_sub(track_start + 3);
+
+    // Collect visible notes
+    let mut notes: Vec<(usize, NoteType)> = Vec::new();
+    for note in &game.chart.notes {
+        if note.hit { continue; }
+
+        let time_diff = note.time_ms as i64 - current_time as i64;
+        if time_diff < -100 || time_diff > SCROLL_WINDOW_MS as i64 { continue; }
+
+        let progress = time_diff as f64 / SCROLL_WINDOW_MS as f64;
+        let x = (track_width as f64 * progress) as usize;
+
+        if x + NOTE_WIDTH < track_width {
+            notes.push((x, note.note_type));
+        }
+    }
+    notes.sort_by_key(|(x, _)| *x);
+
+    // Render each row
+    for row in 0..7 {
+        let mut spans: Vec<Span> = Vec::new();
+
+        // Left margin
+        spans.push(Span::styled("│ ", Style::default().fg(COLOR_DIM)));
+
+        // Drum target
+        spans.push(Span::styled(drum_art[row].0, Style::default().fg(drum_art[row].1)));
+
+        // Hit zone separator
+        spans.push(Span::styled(" ┃", Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD)));
+
+        // Track with notes (only on rows 2-4, the middle band)
+        if row >= 2 && row <= 4 {
+            let track_row = row - 2; // 0, 1, or 2
+            let mut x = 0;
+
+            while x < track_width {
+                // Check for note at this position
+                let note_at_x = notes.iter().find(|(nx, _)| *nx <= x && x < *nx + NOTE_WIDTH);
+
+                if let Some((_, note_type)) = note_at_x {
+                    // Draw note segment
+                    let (chars, color) = match (note_type, track_row) {
+                        // DON - solid chunky blocks
+                        (NoteType::Don, 0) => ("▄███▄", COLOR_DON),
+                        (NoteType::Don, 1) => ("█████", COLOR_DON),
+                        (NoteType::Don, 2) => ("▀███▀", COLOR_DON),
+                        // KA - hollow/outlined
+                        (NoteType::Ka, 0) => ("▄▀▀▀▄", COLOR_KA),
+                        (NoteType::Ka, 1) => ("█ ◆ █", COLOR_KA),
+                        (NoteType::Ka, 2) => ("▀▄▄▄▀", COLOR_KA),
+                        _ => ("     ", COLOR_TRACK),
+                    };
+                    spans.push(Span::styled(chars, Style::default().fg(color).add_modifier(Modifier::BOLD)));
+                    x += NOTE_WIDTH;
+                } else {
+                    // Draw track
+                    let track_char = if track_row == 1 { "═" } else { "─" };
+                    spans.push(Span::styled(track_char, Style::default().fg(COLOR_TRACK)));
+                    x += 1;
+                }
+            }
+        } else {
+            // Empty track rows (decorative lines above/below)
+            if row == 1 || row == 5 {
+                let deco = "░".repeat(track_width);
+                spans.push(Span::styled(deco, Style::default().fg(COLOR_BG_ACCENT)));
+            } else {
+                spans.push(Span::raw(" ".repeat(track_width)));
+            }
+        }
+
+        // Right margin
+        spans.push(Span::styled(" │", Style::default().fg(COLOR_DIM)));
+
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect::new(area.x, area.y + row as u16 + 1, area.width, 1),
+        );
+    }
+
+    // Top and bottom of game area
+    let border = "─".repeat(area.width.saturating_sub(2) as usize);
+    frame.render_widget(
+        Paragraph::new(format!("│{}│", " ".repeat(border.len())))
+            .style(Style::default().fg(COLOR_DIM)),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+    frame.render_widget(
+        Paragraph::new(format!("├{}┤", border))
+            .style(Style::default().fg(COLOR_DIM)),
+        Rect::new(area.x, area.y + 8, area.width, 1),
+    );
+}
+
+fn render_equalizer(frame: &mut Frame, area: Rect, game: &Game) {
+    // Bold retro tracker style - VU meter gradient (green → yellow → red)
+    let bar_height = 7;
+
+    // VU meter color gradient (bottom to top)
+    let vu_colors: [Color; 7] = [
+        Color::Rgb(0, 255, 100),    // Bottom - bright green
+        Color::Rgb(50, 255, 50),    // Green
+        Color::Rgb(150, 255, 0),    // Yellow-green
+        Color::Rgb(255, 255, 0),    // Yellow
+        Color::Rgb(255, 200, 0),    // Orange-yellow
+        Color::Rgb(255, 100, 0),    // Orange
+        Color::Rgb(255, 0, 50),     // Top - hot red (danger zone!)
+    ];
+
+    // Calculate centering: 4 channels × 12 chars (▐ + 10 + ▌) + 3 spaces between = 51 chars
+    let content_width = 51;
+    let available = area.width.saturating_sub(2) as usize; // minus borders
+    let pad_left = available.saturating_sub(content_width) / 2;
+    let pad_right = available.saturating_sub(content_width + pad_left);
+
+    // Title width: "▄▀ ◆ M O D   T R A C K E R ◆ ▀▄" = 31 chars
+    let title = " ◆ M O D   T R A C K E R ◆ ";
+    let title_pad = available.saturating_sub(title.len() + 4) / 2; // +4 for ▄▀ and ▀▄
+
+    // Top border with retro title - centered
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("│", Style::default().fg(COLOR_DIM)),
+            Span::raw(" ".repeat(title_pad)),
+            Span::styled("▄▀", Style::default().fg(COLOR_GOLD)),
+            Span::styled(title, Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled("▀▄", Style::default().fg(COLOR_GOLD)),
+        ])),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+
+    // Render the 7 rows of bars (top = loud, bottom = quiet)
+    for row in 0..bar_height {
+        let threshold = 1.0 - (row as f32 / bar_height as f32);
+        let row_color = vu_colors[row];
+        let dim_color = Color::Rgb(30, 30, 40);
+
+        let mut row_spans: Vec<Span> = vec![
+            Span::styled("│", Style::default().fg(COLOR_DIM)),
+            Span::raw(" ".repeat(pad_left)),
+        ];
+
+        for ch in 0..4 {
+            let level = game.eq_levels[ch];
+
+            // Left bracket
+            row_spans.push(Span::styled("▐", Style::default().fg(EQ_COLORS[ch])));
+
+            // The bar content - 10 chars wide for BOLD presence
+            let (block, fg, is_peak) = if level >= threshold {
+                if row == 0 && level > 0.85 {
+                    // PEAK! Flashing/bright
+                    ("██████████", Color::White, true)
+                } else {
+                    ("██████████", row_color, false)
+                }
+            } else if level >= threshold - 0.08 {
+                // Edge of the bar - partial fill
+                ("▄▄▄▄▄▄▄▄▄▄", row_color, false)
+            } else {
+                // Empty segment - dark with grid lines
+                if row == 3 {
+                    ("──────────", dim_color, false)
+                } else {
+                    ("          ", dim_color, false)
+                }
+            };
+
+            let style = if is_peak {
+                Style::default().fg(fg).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(fg)
+            };
+            row_spans.push(Span::styled(block, style));
+
+            // Right bracket
+            row_spans.push(Span::styled("▌", Style::default().fg(EQ_COLORS[ch])));
+
+            // Spacing between channels
+            if ch < 3 {
+                row_spans.push(Span::raw(" "));
+            }
+        }
+
+        row_spans.push(Span::raw(" ".repeat(pad_right)));
+        row_spans.push(Span::styled("│", Style::default().fg(COLOR_DIM)));
+
+        frame.render_widget(
+            Paragraph::new(Line::from(row_spans)),
+            Rect::new(area.x, area.y + 1 + row as u16, area.width, 1),
+        );
+    }
+
+    // Channel labels at bottom - centered
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("│", Style::default().fg(COLOR_DIM)),
+            Span::raw(" ".repeat(pad_left)),
+            Span::styled("▌", Style::default().fg(EQ_COLORS[0])),
+            Span::styled("  CHAN 1  ", Style::default().fg(EQ_COLORS[0]).add_modifier(Modifier::BOLD)),
+            Span::styled("▐", Style::default().fg(EQ_COLORS[0])),
+            Span::raw(" "),
+            Span::styled("▌", Style::default().fg(EQ_COLORS[1])),
+            Span::styled("  CHAN 2  ", Style::default().fg(EQ_COLORS[1]).add_modifier(Modifier::BOLD)),
+            Span::styled("▐", Style::default().fg(EQ_COLORS[1])),
+            Span::raw(" "),
+            Span::styled("▌", Style::default().fg(EQ_COLORS[2])),
+            Span::styled("  CHAN 3  ", Style::default().fg(EQ_COLORS[2]).add_modifier(Modifier::BOLD)),
+            Span::styled("▐", Style::default().fg(EQ_COLORS[2])),
+            Span::raw(" "),
+            Span::styled("▌", Style::default().fg(EQ_COLORS[3])),
+            Span::styled("  CHAN 4  ", Style::default().fg(EQ_COLORS[3]).add_modifier(Modifier::BOLD)),
+            Span::styled("▐", Style::default().fg(EQ_COLORS[3])),
+            Span::raw(" ".repeat(pad_right)),
+            Span::styled("│", Style::default().fg(COLOR_DIM)),
+        ])),
+        Rect::new(area.x, area.y + 8, area.width, 1),
+    );
+}
+
+fn render_feedback(frame: &mut Frame, area: Rect, game: &Game) {
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Hit result - big and bold
+    if let Some(result) = game.last_hit_result {
+        let (text, color) = match result {
+            HitResult::Perfect => ("  ★ ★ ★  P E R F E C T  ★ ★ ★  ", COLOR_GOLD),
+            HitResult::Good => ("  ★  G O O D  ★  ", Color::Green),
+            HitResult::Miss => ("  ×  M I S S  ×  ", Color::Red),
+            HitResult::Wrong => ("  ×  W R O N G  ×  ", Color::Magenta),
+        };
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            text,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        )));
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+    }
+
+    // Combo display
+    if game.combo >= 2 {
+        let combo_color = if game.combo >= 100 {
+            COLOR_GOLD
+        } else if game.combo >= 50 {
+            Color::Magenta
+        } else if game.combo >= 10 {
+            COLOR_KA
+        } else {
+            Color::White
+        };
+
+        let combo_text = if game.combo >= 50 {
+            format!("▶▶▶  {}  C O M B O  ◀◀◀", game.combo)
+        } else {
+            format!("{}  C O M B O", game.combo)
+        };
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            combo_text,
+            Style::default().fg(combo_color).add_modifier(Modifier::BOLD),
+        )));
+    }
+
+    let para = Paragraph::new(lines).alignment(Alignment::Center);
+    frame.render_widget(para, area);
+}
+
+fn render_footer(frame: &mut Frame, area: Rect) {
+    let footer = Line::from(vec![
+        Span::styled("│", Style::default().fg(COLOR_DIM)),
+        Span::raw("   "),
+        Span::styled("███", Style::default().fg(COLOR_DON)),
+        Span::styled(" DON ", Style::default().fg(COLOR_DON).add_modifier(Modifier::BOLD)),
+        Span::styled("[D][F]", Style::default().fg(Color::White)),
+        Span::raw("        "),
+        Span::styled("█◆█", Style::default().fg(COLOR_KA)),
+        Span::styled(" KA ", Style::default().fg(COLOR_KA).add_modifier(Modifier::BOLD)),
+        Span::styled("[J][K]", Style::default().fg(Color::White)),
+        Span::raw("        "),
+        Span::styled("[ESC]", Style::default().fg(Color::DarkGray)),
+        Span::styled(" quit", Style::default().fg(Color::DarkGray)),
+    ]);
+
+    frame.render_widget(
+        Paragraph::new(footer).alignment(Alignment::Center),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+
+    // Bottom border
+    let border = "─".repeat(area.width.saturating_sub(2) as usize);
+    frame.render_widget(
+        Paragraph::new(format!("└{}┘", border))
+            .style(Style::default().fg(COLOR_DIM)),
+        Rect::new(area.x, area.y + 1, area.width, 1),
+    );
+}
+
+pub fn render_results(frame: &mut Frame, game: &Game) {
+    let size = frame.area();
+
+    let accuracy = if game.perfect_count + game.good_count + game.miss_count > 0 {
+        let total = game.perfect_count + game.good_count + game.miss_count;
+        ((game.perfect_count as f64 * 100.0 + game.good_count as f64 * 50.0) / total as f64) as u32
+    } else {
+        0
+    };
+
+    let (grade, grade_color) = match accuracy {
+        95..=100 => ("S", COLOR_GOLD),
+        85..=94 => ("A", Color::Magenta),
+        70..=84 => ("B", COLOR_KA),
+        50..=69 => ("C", Color::Green),
+        _ => ("D", Color::Red),
+    };
+
+    // Big ASCII grade
+    let grade_art: Vec<&str> = match grade {
+        "S" => vec![
+            "  ▄▄▄▄▄▄▄  ",
+            " ██▀▀▀▀▀   ",
+            " ▀██████▄  ",
+            "      ▀▀██ ",
+            " ▄▄▄▄▄██▀  ",
+        ],
+        "A" => vec![
+            "    ▄██▄    ",
+            "   ██  ██   ",
+            "  ████████  ",
+            " ██      ██ ",
+            " ██      ██ ",
+        ],
+        "B" => vec![
+            " ██████▄  ",
+            " ██   ▀██ ",
+            " ██████▀  ",
+            " ██   ▄██ ",
+            " ██████▀  ",
+        ],
+        "C" => vec![
+            "  ▄█████▄ ",
+            " ██▀      ",
+            " ██       ",
+            " ██▄      ",
+            "  ▀█████▀ ",
+        ],
+        _ => vec![
+            " ██████▄  ",
+            " ██   ▀██ ",
+            " ██    ██ ",
+            " ██   ▄██ ",
+            " ██████▀  ",
+        ],
+    };
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Title
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "═══════════════════════════════════",
+        Style::default().fg(COLOR_GOLD),
+    )));
+    lines.push(Line::from(Span::styled(
+        "         R E S U L T S         ",
+        Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(Span::styled(
+        "═══════════════════════════════════",
+        Style::default().fg(COLOR_GOLD),
+    )));
+    lines.push(Line::from(""));
+
+    // Grade art
+    for line in grade_art {
+        lines.push(Line::from(Span::styled(
+            format!("          {}", line),
+            Style::default().fg(grade_color).add_modifier(Modifier::BOLD),
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        format!("       SCORE    {:08}", game.score),
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("       PERFECT  ", Style::default().fg(COLOR_GOLD)),
+        Span::styled(format!("{:4}", game.perfect_count), Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("       GOOD     ", Style::default().fg(Color::Green)),
+        Span::styled(format!("{:4}", game.good_count), Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("       MISS     ", Style::default().fg(Color::Red)),
+        Span::styled(format!("{:4}", game.miss_count), Style::default().fg(Color::White)),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        format!("       MAX COMBO   {}", game.max_combo),
+        Style::default().fg(Color::Magenta),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "───────────────────────────────────",
+        Style::default().fg(COLOR_DIM),
+    )));
+    lines.push(Line::from(Span::styled(
+        "     Press ENTER to continue...    ",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(grade_color));
+
+    let inner = block.inner(size);
+    frame.render_widget(block, size);
+    frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);
+}
