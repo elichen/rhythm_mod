@@ -17,7 +17,7 @@ const COLOR_DON: Color = Color::Rgb(255, 82, 82);      // Hot red
 const COLOR_KA: Color = Color::Rgb(0, 229, 255);       // Electric cyan
 const COLOR_GOLD: Color = Color::Rgb(255, 215, 0);     // Gold accent
 const COLOR_TRACK: Color = Color::Rgb(60, 60, 80);     // Muted purple-gray
-const COLOR_DIM: Color = Color::Rgb(80, 80, 100);      // Slightly brighter track
+const COLOR_DIM: Color = Color::Rgb(100, 100, 130);     // Border color - visible on dark bg
 const COLOR_BG_ACCENT: Color = Color::Rgb(30, 30, 45); // Dark purple
 
 // Equalizer channel colors - classic MOD tracker style
@@ -80,18 +80,21 @@ fn render_header(frame: &mut Frame, area: Rect, game: &Game) {
     let title = format!(" ◆ {} ", game.chart.title);
     let score_str = format!("{:08}", game.score);
 
-    let mut title_spans = vec![
+    // Calculate: │(1) + ` ▄▀▀▀▄ `(7) + title + padding + score(8) + ` │`(2) = width
+    // Note: title.len() is bytes, but display width differs for Unicode like ◆
+    // title format is " ◆ {} " = space(1) + ◆(1) + space(1) + title + space(1) = 4 + title chars
+    let title_display_width = 4 + game.chart.title.chars().count();
+    let title_content = 1 + 7 + title_display_width + score_str.len() + 2;
+    let title_padding = (area.width as usize).saturating_sub(title_content);
+
+    let title_spans = vec![
         Span::styled("│", Style::default().fg(COLOR_DIM)),
         Span::styled(" ▄▀▀▀▄ ", Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD)),
         Span::styled(&title, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::raw(" ".repeat(title_padding)),
+        Span::styled(&score_str, Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD)),
+        Span::styled(" │", Style::default().fg(COLOR_DIM)),
     ];
-
-    // Pad to align score
-    let used = 10 + title.len();
-    let padding = (area.width as usize).saturating_sub(used + score_str.len() + 4);
-    title_spans.push(Span::raw(" ".repeat(padding)));
-    title_spans.push(Span::styled(&score_str, Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD)));
-    title_spans.push(Span::styled(" │", Style::default().fg(COLOR_DIM)));
 
     frame.render_widget(
         Paragraph::new(Line::from(title_spans)),
@@ -99,22 +102,25 @@ fn render_header(frame: &mut Frame, area: Rect, game: &Game) {
     );
 
     // Soul gauge line
+    // Calculate: │(1) + ` SOUL `(6) + ▐(1) + gauge(20) + ▌(1) + ` NNN%`(5) + padding + │(1) = width
+    // So: padding = width - 35
     let gauge_full: String = "█".repeat(filled);
     let gauge_empty: String = "░".repeat(gauge_width - filled);
+    let pct_str = format!(" {:3.0}%", soul_pct);
+    let gauge_content = 1 + 6 + 1 + gauge_width + 1 + pct_str.len() + 1; // 35
+    let gauge_padding = (area.width as usize).saturating_sub(gauge_content);
 
-    let mut gauge_spans = vec![
+    let gauge_spans = vec![
         Span::styled("│", Style::default().fg(COLOR_DIM)),
         Span::styled(" SOUL ", Style::default().fg(Color::White)),
         Span::styled("▐", Style::default().fg(gauge_color)),
         Span::styled(&gauge_full, Style::default().fg(gauge_color)),
         Span::styled(&gauge_empty, Style::default().fg(COLOR_TRACK)),
         Span::styled("▌", Style::default().fg(gauge_color)),
-        Span::styled(format!(" {:3.0}%", soul_pct), Style::default().fg(Color::White)),
+        Span::styled(pct_str, Style::default().fg(Color::White)),
+        Span::raw(" ".repeat(gauge_padding)),
+        Span::styled("│", Style::default().fg(COLOR_DIM)),
     ];
-
-    let gauge_padding = (area.width as usize).saturating_sub(38);
-    gauge_spans.push(Span::raw(" ".repeat(gauge_padding)));
-    gauge_spans.push(Span::styled("│", Style::default().fg(COLOR_DIM)));
 
     frame.render_widget(
         Paragraph::new(Line::from(gauge_spans)),
@@ -146,13 +152,13 @@ fn render_game_area(frame: &mut Frame, area: Rect, game: &Game) {
     };
 
     let drum_art = [
-        ("   ▄▄███▄▄   ", drum_glow),
-        ("  █▓▓▓▓▓▓▓█  ", drum_color),
-        (" █▓▓█████▓▓█ ", drum_color),
-        (" █▓██   ██▓█ ", drum_color),
-        (" █▓▓█████▓▓█ ", drum_color),
-        ("  █▓▓▓▓▓▓▓█  ", drum_color),
-        ("   ▀▀███▀▀   ", drum_glow),
+        ("   ▄▄███▄▄    ", drum_glow),
+        ("  █▓▓▓▓▓▓▓█   ", drum_color),
+        (" █▓▓█████▓▓█  ", drum_color),
+        (" █▓██   ██▓█  ", drum_color),
+        (" █▓▓█████▓▓█  ", drum_color),
+        ("  █▓▓▓▓▓▓▓█   ", drum_color),
+        ("   ▀▀███▀▀    ", drum_glow),
     ];
 
     let drum_width = 14;
@@ -241,8 +247,9 @@ fn render_game_area(frame: &mut Frame, area: Rect, game: &Game) {
 
     // Top and bottom of game area
     let border = "─".repeat(area.width.saturating_sub(2) as usize);
+    let inner_width = area.width.saturating_sub(2) as usize;
     frame.render_widget(
-        Paragraph::new(format!("│{}│", " ".repeat(border.len())))
+        Paragraph::new(format!("│{}│", " ".repeat(inner_width)))
             .style(Style::default().fg(COLOR_DIM)),
         Rect::new(area.x, area.y, area.width, 1),
     );
@@ -274,11 +281,13 @@ fn render_equalizer(frame: &mut Frame, area: Rect, game: &Game) {
     let pad_left = available.saturating_sub(content_width) / 2;
     let pad_right = available.saturating_sub(content_width + pad_left);
 
-    // Title width: "▄▀ ◆ M O D   T R A C K E R ◆ ▀▄" = 31 chars
+    // Title: │ + pad_left + ▄▀(2) + title(27 display width) + ▀▄(2) + pad_right + │
+    // Note: title.len() returns bytes (31), but display width is 27
     let title = " ◆ M O D   T R A C K E R ◆ ";
-    let title_pad = available.saturating_sub(title.len() + 4) / 2; // +4 for ▄▀ and ▀▄
-
-    // Top border with retro title - centered
+    let title_display_width = 27; // Actual display width (◆ is 1 width but 3 bytes)
+    let title_content_width = 2 + title_display_width + 2; // ▄▀ + title + ▀▄ = 31 display
+    let title_pad = available.saturating_sub(title_content_width) / 2;
+    let title_pad_right = available.saturating_sub(title_pad + title_content_width);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled("│", Style::default().fg(COLOR_DIM)),
@@ -286,6 +295,8 @@ fn render_equalizer(frame: &mut Frame, area: Rect, game: &Game) {
             Span::styled("▄▀", Style::default().fg(COLOR_GOLD)),
             Span::styled(title, Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD)),
             Span::styled("▀▄", Style::default().fg(COLOR_GOLD)),
+            Span::raw(" ".repeat(title_pad_right)),
+            Span::styled("│", Style::default().fg(COLOR_DIM)),
         ])),
         Rect::new(area.x, area.y, area.width, 1),
     );
@@ -380,59 +391,89 @@ fn render_equalizer(frame: &mut Frame, area: Rect, game: &Game) {
 }
 
 fn render_feedback(frame: &mut Frame, area: Rect, game: &Game) {
-    let mut lines: Vec<Line> = Vec::new();
+    let inner_width = area.width.saturating_sub(2) as usize;
 
-    // Hit result - big and bold
-    if let Some(result) = game.last_hit_result {
-        let (text, color) = match result {
-            HitResult::Perfect => ("  ★ ★ ★  P E R F E C T  ★ ★ ★  ", COLOR_GOLD),
-            HitResult::Good => ("  ★  G O O D  ★  ", Color::Green),
-            HitResult::Miss => ("  ×  M I S S  ×  ", Color::Red),
-            HitResult::Wrong => ("  ×  W R O N G  ×  ", Color::Magenta),
-        };
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            text,
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        )));
-    } else {
-        lines.push(Line::from(""));
-        lines.push(Line::from(""));
-    }
-
-    // Combo display
-    if game.combo >= 2 {
-        let combo_color = if game.combo >= 100 {
-            COLOR_GOLD
-        } else if game.combo >= 50 {
-            Color::Magenta
-        } else if game.combo >= 10 {
-            COLOR_KA
+    // Render each row with borders
+    for row in 0..area.height {
+        let line = if row == 1 {
+            // Hit result row
+            if let Some(result) = game.last_hit_result {
+                let (text, color) = match result {
+                    HitResult::Perfect => ("  ★ ★ ★  P E R F E C T  ★ ★ ★  ", COLOR_GOLD),
+                    HitResult::Good => ("  ★  G O O D  ★  ", Color::Green),
+                    HitResult::Miss => ("  ×  M I S S  ×  ", Color::Red),
+                    HitResult::Wrong => ("  ×  W R O N G  ×  ", Color::Magenta),
+                };
+                let content_width = text.chars().count();
+                let pad_left = inner_width.saturating_sub(content_width) / 2;
+                let pad_right = inner_width.saturating_sub(content_width + pad_left);
+                Line::from(vec![
+                    Span::styled("│", Style::default().fg(COLOR_DIM)),
+                    Span::raw(" ".repeat(pad_left)),
+                    Span::styled(text, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                    Span::raw(" ".repeat(pad_right)),
+                    Span::styled("│", Style::default().fg(COLOR_DIM)),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled("│", Style::default().fg(COLOR_DIM)),
+                    Span::raw(" ".repeat(inner_width)),
+                    Span::styled("│", Style::default().fg(COLOR_DIM)),
+                ])
+            }
+        } else if row == 3 && game.combo >= 2 {
+            // Combo row
+            let combo_color = if game.combo >= 100 {
+                COLOR_GOLD
+            } else if game.combo >= 50 {
+                Color::Magenta
+            } else if game.combo >= 10 {
+                COLOR_KA
+            } else {
+                Color::White
+            };
+            let combo_text = if game.combo >= 50 {
+                format!("▶▶▶  {}  C O M B O  ◀◀◀", game.combo)
+            } else {
+                format!("{}  C O M B O", game.combo)
+            };
+            let content_width = combo_text.chars().count();
+            let pad_left = inner_width.saturating_sub(content_width) / 2;
+            let pad_right = inner_width.saturating_sub(content_width + pad_left);
+            Line::from(vec![
+                Span::styled("│", Style::default().fg(COLOR_DIM)),
+                Span::raw(" ".repeat(pad_left)),
+                Span::styled(combo_text, Style::default().fg(combo_color).add_modifier(Modifier::BOLD)),
+                Span::raw(" ".repeat(pad_right)),
+                Span::styled("│", Style::default().fg(COLOR_DIM)),
+            ])
         } else {
-            Color::White
+            // Empty bordered line
+            Line::from(vec![
+                Span::styled("│", Style::default().fg(COLOR_DIM)),
+                Span::raw(" ".repeat(inner_width)),
+                Span::styled("│", Style::default().fg(COLOR_DIM)),
+            ])
         };
 
-        let combo_text = if game.combo >= 50 {
-            format!("▶▶▶  {}  C O M B O  ◀◀◀", game.combo)
-        } else {
-            format!("{}  C O M B O", game.combo)
-        };
-
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            combo_text,
-            Style::default().fg(combo_color).add_modifier(Modifier::BOLD),
-        )));
+        frame.render_widget(
+            Paragraph::new(line),
+            Rect::new(area.x, area.y + row, area.width, 1),
+        );
     }
-
-    let para = Paragraph::new(lines).alignment(Alignment::Center);
-    frame.render_widget(para, area);
 }
 
 fn render_footer(frame: &mut Frame, area: Rect) {
+    // Calculate content width: "███ DON [D][F]        █◆█ KA [J][K]        [ESC] quit"
+    // = 3 + 5 + 6 + 8 + 3 + 4 + 6 + 8 + 5 + 5 = 53 chars
+    let content_width = 53;
+    let available = area.width.saturating_sub(2) as usize; // minus borders
+    let pad_left = available.saturating_sub(content_width) / 2;
+    let pad_right = available.saturating_sub(content_width + pad_left);
+
     let footer = Line::from(vec![
         Span::styled("│", Style::default().fg(COLOR_DIM)),
-        Span::raw("   "),
+        Span::raw(" ".repeat(pad_left)),
         Span::styled("███", Style::default().fg(COLOR_DON)),
         Span::styled(" DON ", Style::default().fg(COLOR_DON).add_modifier(Modifier::BOLD)),
         Span::styled("[D][F]", Style::default().fg(Color::White)),
@@ -443,10 +484,12 @@ fn render_footer(frame: &mut Frame, area: Rect) {
         Span::raw("        "),
         Span::styled("[ESC]", Style::default().fg(Color::DarkGray)),
         Span::styled(" quit", Style::default().fg(Color::DarkGray)),
+        Span::raw(" ".repeat(pad_right)),
+        Span::styled("│", Style::default().fg(COLOR_DIM)),
     ]);
 
     frame.render_widget(
-        Paragraph::new(footer).alignment(Alignment::Center),
+        Paragraph::new(footer),
         Rect::new(area.x, area.y, area.width, 1),
     );
 
@@ -480,11 +523,11 @@ pub fn render_results(frame: &mut Frame, game: &Game) {
     // Big ASCII grade
     let grade_art: Vec<&str> = match grade {
         "S" => vec![
-            "  ▄▄▄▄▄▄▄  ",
-            " ██▀▀▀▀▀   ",
-            " ▀██████▄  ",
-            "      ▀▀██ ",
-            " ▄▄▄▄▄██▀  ",
+            "  ▄▄▄▄▄▄▄   ",
+            " ██▀▀▀▀▀    ",
+            " ▀██████▄   ",
+            "      ▀▀██  ",
+            " ▄▄▄▄▄██▀   ",
         ],
         "A" => vec![
             "    ▄██▄    ",
@@ -494,25 +537,25 @@ pub fn render_results(frame: &mut Frame, game: &Game) {
             " ██      ██ ",
         ],
         "B" => vec![
-            " ██████▄  ",
-            " ██   ▀██ ",
-            " ██████▀  ",
-            " ██   ▄██ ",
-            " ██████▀  ",
+            " ██████▄    ",
+            " ██   ▀██   ",
+            " ██████▀    ",
+            " ██   ▄██   ",
+            " ██████▀    ",
         ],
         "C" => vec![
-            "  ▄█████▄ ",
-            " ██▀      ",
-            " ██       ",
-            " ██▄      ",
-            "  ▀█████▀ ",
+            "  ▄█████▄   ",
+            " ██▀        ",
+            " ██         ",
+            " ██▄        ",
+            "  ▀█████▀   ",
         ],
         _ => vec![
-            " ██████▄  ",
-            " ██   ▀██ ",
-            " ██    ██ ",
-            " ██   ▄██ ",
-            " ██████▀  ",
+            " ██████▄    ",
+            " ██   ▀██   ",
+            " ██    ██   ",
+            " ██   ▄██   ",
+            " ██████▀    ",
         ],
     };
 
@@ -525,7 +568,7 @@ pub fn render_results(frame: &mut Frame, game: &Game) {
         Style::default().fg(COLOR_GOLD),
     )));
     lines.push(Line::from(Span::styled(
-        "         R E S U L T S         ",
+        "           R E S U L T S           ",
         Style::default().fg(COLOR_GOLD).add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(Span::styled(

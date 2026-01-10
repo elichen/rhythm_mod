@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod ascii_check;
 mod audio;
 mod chart;
 mod game;

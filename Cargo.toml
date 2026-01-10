@@ -11,3 +11,7 @@ crossterm = "0.28"
 rodio = "0.19"
 anyhow = "1.0"
 mod_player = "0.1"
+libc = "0.2"
+
+[dev-dependencies]
+unicode-width = "0.2"

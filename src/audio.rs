@@ -3,6 +3,8 @@ use rodio::source::Source;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 use std::time::Duration;
 use std::path::Path;
+use std::io::{self, Write};
+use std::os::unix::io::AsRawFd;
 
 use crate::chart::NoteType;
 
@@ -27,7 +29,9 @@ impl Audio {
     /// Load and play a MOD file from a path
     pub fn play_mod_file(&mut self, path: &Path) -> anyhow::Result<()> {
         let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
-        let song = read_mod_file(path_str);
+
+        // Suppress stdout during MOD file loading (mod_player prints debug info)
+        let song = suppress_stdout(|| read_mod_file(path_str));
         let source = ModSource::new(song);
 
         let sink = Sink::try_new(&self.stream_handle)?;
@@ -173,4 +177,45 @@ impl Source for SineWaveSource {
             (self.duration_samples as u64 * 1000) / self.sample_rate as u64,
         ))
     }
+}
+
+/// Suppress stdout during execution of a function
+/// Used to silence debug output from mod_player library
+fn suppress_stdout<T, F: FnOnce() -> T>(f: F) -> T {
+    use std::fs::File;
+
+    // Flush stdout before redirecting
+    let _ = io::stdout().flush();
+
+    // Open /dev/null
+    let devnull = match File::create("/dev/null") {
+        Ok(f) => f,
+        Err(_) => return f(), // Can't suppress, just run
+    };
+
+    // Save original stdout
+    let stdout_fd = io::stdout().as_raw_fd();
+    let saved_stdout = unsafe { libc::dup(stdout_fd) };
+    if saved_stdout == -1 {
+        return f(); // Can't dup, just run
+    }
+
+    // Redirect stdout to /dev/null
+    let devnull_fd = devnull.as_raw_fd();
+    if unsafe { libc::dup2(devnull_fd, stdout_fd) } == -1 {
+        unsafe { libc::close(saved_stdout) };
+        return f(); // Can't redirect, just run
+    }
+
+    // Run the function
+    let result = f();
+
+    // Restore stdout
+    let _ = io::stdout().flush();
+    unsafe {
+        libc::dup2(saved_stdout, stdout_fd);
+        libc::close(saved_stdout);
+    }
+
+    result
 }
