@@ -112,6 +112,10 @@ fn run_game(
     audio: Option<&Audio>,
 ) -> Result<()> {
     loop {
+        // Sync game time with audio playback position
+        let audio_time = audio.and_then(|a| a.get_playback_time_ms());
+        game.set_audio_time(audio_time);
+
         // Check for missed notes
         game.check_missed_notes();
 

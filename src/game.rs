@@ -13,6 +13,8 @@ pub enum HitResult {
 pub struct Game {
     pub chart: Chart,
     pub start_time: Instant,
+    /// Audio-synced time (if available), otherwise uses wall clock
+    audio_time_ms: Option<u64>,
     pub score: u32,
     pub combo: u32,
     pub max_combo: u32,
@@ -41,6 +43,7 @@ impl Game {
         Game {
             chart,
             start_time: Instant::now(),
+            audio_time_ms: None,
             score: 0,
             combo: 0,
             max_combo: 0,
@@ -55,6 +58,11 @@ impl Game {
             eq_beat_index: 0,
             eq_channel_energy: [0.0; 4],
         }
+    }
+
+    /// Set current time from audio playback (for sync)
+    pub fn set_audio_time(&mut self, time_ms: Option<u64>) {
+        self.audio_time_ms = time_ms;
     }
 
     /// Map a sample number to an EQ channel (0-3)
@@ -109,8 +117,11 @@ impl Game {
     }
 
     /// Get current game time in milliseconds
+    /// Uses audio time if available (for sync), otherwise falls back to wall clock
     pub fn current_time_ms(&self) -> u64 {
-        self.start_time.elapsed().as_millis() as u64
+        self.audio_time_ms.unwrap_or_else(|| {
+            self.start_time.elapsed().as_millis() as u64
+        })
     }
 
     /// Process a hit input from the player

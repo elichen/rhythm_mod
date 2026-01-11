@@ -1,6 +1,8 @@
 use mod_player::{read_mod_file, next_sample, PlayerState, Song};
 use rodio::source::Source;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use std::path::Path;
 use std::io::{self, Write};
@@ -14,6 +16,8 @@ pub struct Audio {
     _stream: OutputStream,
     stream_handle: OutputStreamHandle,
     music_sink: Option<Sink>,
+    /// Tracks number of audio frames generated (for sync)
+    audio_position: Option<Arc<AtomicU64>>,
 }
 
 impl Audio {
@@ -23,6 +27,15 @@ impl Audio {
             _stream: stream,
             stream_handle,
             music_sink: None,
+            audio_position: None,
+        })
+    }
+
+    /// Get current playback time in milliseconds (based on samples generated)
+    pub fn get_playback_time_ms(&self) -> Option<u64> {
+        self.audio_position.as_ref().map(|pos| {
+            let frames = pos.load(Ordering::Relaxed);
+            (frames * 1000) / SAMPLE_RATE as u64
         })
     }
 
@@ -32,11 +45,15 @@ impl Audio {
 
         // Suppress stdout during MOD file loading (mod_player prints debug info)
         let song = suppress_stdout(|| read_mod_file(path_str));
-        let source = ModSource::new(song);
+
+        // Create shared counter for tracking playback position
+        let position_counter = Arc::new(AtomicU64::new(0));
+        let source = ModSource::new(song, Arc::clone(&position_counter));
 
         let sink = Sink::try_new(&self.stream_handle)?;
         sink.append(source);
         self.music_sink = Some(sink);
+        self.audio_position = Some(position_counter);
 
         Ok(())
     }
@@ -73,16 +90,19 @@ struct ModSource {
     player_state: PlayerState,
     current_channel: usize, // 0 = left, 1 = right
     current_sample: (f32, f32),
+    /// Shared counter tracking frames generated (for sync)
+    frames_played: Arc<AtomicU64>,
 }
 
 impl ModSource {
-    fn new(song: Song) -> Self {
+    fn new(song: Song, frames_counter: Arc<AtomicU64>) -> Self {
         let player_state = PlayerState::new(song.format.num_channels as u32, SAMPLE_RATE);
         ModSource {
             song,
             player_state,
             current_channel: 0,
             current_sample: (0.0, 0.0),
+            frames_played: frames_counter,
         }
     }
 }
@@ -92,9 +112,11 @@ impl Iterator for ModSource {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_channel == 0 {
-            // Generate new sample pair
+            // Generate new sample pair (one stereo frame)
             self.current_sample = next_sample(&self.song, &mut self.player_state);
             self.current_channel = 1;
+            // Increment frame counter (once per stereo frame)
+            self.frames_played.fetch_add(1, Ordering::Relaxed);
             Some(self.current_sample.0 * 0.5) // Left channel, reduce volume
         } else {
             self.current_channel = 0;
