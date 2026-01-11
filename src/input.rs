@@ -21,14 +21,14 @@ pub fn poll_input(timeout: Duration) -> anyhow::Result<InputEvent> {
 
 fn map_key_event(key: KeyEvent) -> InputEvent {
     match key.code {
-        // D or F = Don (center hit)
-        KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Char('f') | KeyCode::Char('F') => {
-            InputEvent::Hit(NoteType::Don)
-        }
-        // J or K = Ka (rim hit)
-        KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Char('k') | KeyCode::Char('K') => {
-            InputEvent::Hit(NoteType::Ka)
-        }
+        // D = Don Left (center hit, left hand)
+        KeyCode::Char('d') | KeyCode::Char('D') => InputEvent::Hit(NoteType::DonLeft),
+        // F = Don Right (center hit, right hand)
+        KeyCode::Char('f') | KeyCode::Char('F') => InputEvent::Hit(NoteType::DonRight),
+        // J = Ka Left (rim hit, left hand)
+        KeyCode::Char('j') | KeyCode::Char('J') => InputEvent::Hit(NoteType::KaLeft),
+        // K = Ka Right (rim hit, right hand)
+        KeyCode::Char('k') | KeyCode::Char('K') => InputEvent::Hit(NoteType::KaRight),
         // Escape or Q to quit
         KeyCode::Esc => InputEvent::Quit,
         KeyCode::Char('q') | KeyCode::Char('Q') => InputEvent::Quit,

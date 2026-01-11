@@ -44,8 +44,8 @@ impl Audio {
     /// Play a drum hit sound
     pub fn play_hit(&self, note_type: NoteType) {
         let frequency = match note_type {
-            NoteType::Don => 150.0,
-            NoteType::Ka => 400.0,
+            NoteType::DonLeft | NoteType::DonRight => 150.0,
+            NoteType::KaLeft | NoteType::KaRight => 400.0,
         };
 
         let source = SineWaveSource::new(frequency, 80);

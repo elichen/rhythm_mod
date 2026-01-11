@@ -3,8 +3,10 @@ use crate::mod_parser::{parse_mod_file, extract_beats, filter_beats_for_gameplay
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NoteType {
-    Don, // Center hit (red) - D/F keys
-    Ka,  // Rim hit (blue) - J/K keys
+    DonLeft,  // Center hit left (red) - D key
+    DonRight, // Center hit right (red) - F key
+    KaLeft,   // Rim hit left (blue) - J key
+    KaRight,  // Rim hit right (blue) - K key
 }
 
 #[derive(Clone)]
@@ -43,57 +45,56 @@ impl Chart {
         // 16 bars of rhythmic variety
         let mut time = start_offset;
 
-        // Section 1: Basic groove (4 bars)
+        // Section 1: Basic groove (4 bars) - alternating L/R
         for _ in 0..4 {
-            notes.push(Note { note_type: NoteType::Don, time_ms: time, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + half_beat, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + beat_ms, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms + half_beat, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + beat_ms * 2, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms * 2 + half_beat, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + beat_ms * 3, hit: false });
+            notes.push(Note { note_type: NoteType::DonLeft, time_ms: time, hit: false });
+            notes.push(Note { note_type: NoteType::KaRight, time_ms: time + half_beat, hit: false });
+            notes.push(Note { note_type: NoteType::DonRight, time_ms: time + beat_ms, hit: false });
+            notes.push(Note { note_type: NoteType::KaLeft, time_ms: time + beat_ms + half_beat, hit: false });
+            notes.push(Note { note_type: NoteType::DonLeft, time_ms: time + beat_ms * 2, hit: false });
+            notes.push(Note { note_type: NoteType::KaRight, time_ms: time + beat_ms * 2 + half_beat, hit: false });
+            notes.push(Note { note_type: NoteType::DonRight, time_ms: time + beat_ms * 3, hit: false });
             time += beat_ms * 4;
         }
 
         // Section 2: More active (4 bars)
         for _ in 0..4 {
-            notes.push(Note { note_type: NoteType::Don, time_ms: time, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + half_beat, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms + half_beat, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + beat_ms * 2, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms * 2 + half_beat, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + beat_ms * 3, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms * 3 + half_beat, hit: false });
+            notes.push(Note { note_type: NoteType::DonLeft, time_ms: time, hit: false });
+            notes.push(Note { note_type: NoteType::DonRight, time_ms: time + half_beat, hit: false });
+            notes.push(Note { note_type: NoteType::KaLeft, time_ms: time + beat_ms, hit: false });
+            notes.push(Note { note_type: NoteType::KaRight, time_ms: time + beat_ms + half_beat, hit: false });
+            notes.push(Note { note_type: NoteType::DonLeft, time_ms: time + beat_ms * 2, hit: false });
+            notes.push(Note { note_type: NoteType::KaLeft, time_ms: time + beat_ms * 2 + half_beat, hit: false });
+            notes.push(Note { note_type: NoteType::DonRight, time_ms: time + beat_ms * 3, hit: false });
+            notes.push(Note { note_type: NoteType::KaRight, time_ms: time + beat_ms * 3 + half_beat, hit: false });
             time += beat_ms * 4;
         }
 
         // Section 3: Syncopated (4 bars)
         for _ in 0..4 {
-            notes.push(Note { note_type: NoteType::Don, time_ms: time, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms / 4, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + beat_ms, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + beat_ms * 2, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms * 2 + beat_ms / 4, hit: false });
-            notes.push(Note { note_type: NoteType::Don, time_ms: time + beat_ms * 3, hit: false });
-            notes.push(Note { note_type: NoteType::Ka, time_ms: time + beat_ms * 3 + half_beat, hit: false });
+            notes.push(Note { note_type: NoteType::DonLeft, time_ms: time, hit: false });
+            notes.push(Note { note_type: NoteType::KaRight, time_ms: time + beat_ms / 4, hit: false });
+            notes.push(Note { note_type: NoteType::DonRight, time_ms: time + beat_ms, hit: false });
+            notes.push(Note { note_type: NoteType::DonLeft, time_ms: time + beat_ms * 2, hit: false });
+            notes.push(Note { note_type: NoteType::KaLeft, time_ms: time + beat_ms * 2 + beat_ms / 4, hit: false });
+            notes.push(Note { note_type: NoteType::DonRight, time_ms: time + beat_ms * 3, hit: false });
+            notes.push(Note { note_type: NoteType::KaRight, time_ms: time + beat_ms * 3 + half_beat, hit: false });
             time += beat_ms * 4;
         }
 
         // Section 4: Finale (4 bars)
+        let types = [NoteType::DonLeft, NoteType::KaRight, NoteType::DonRight, NoteType::KaLeft];
         for bar in 0..4 {
-            // Increasing intensity
             for beat in 0..4 {
                 let beat_start = time + beat * beat_ms;
                 notes.push(Note {
-                    note_type: if (beat + bar) % 2 == 0 { NoteType::Don } else { NoteType::Ka },
+                    note_type: types[(beat as usize + bar as usize) % 4],
                     time_ms: beat_start,
                     hit: false,
                 });
                 if bar >= 2 {
-                    // Add off-beats in last 2 bars
                     notes.push(Note {
-                        note_type: NoteType::Ka,
+                        note_type: types[(beat as usize + bar as usize + 2) % 4],
                         time_ms: beat_start + half_beat,
                         hit: false,
                     });
@@ -128,20 +129,20 @@ impl Chart {
         // Filter to avoid notes that are too close together (min 100ms gap)
         let filtered = filter_beats_for_gameplay(beats, 100);
 
+        // Cycle through all 4 note types for balanced distribution
+        let note_types = [
+            NoteType::DonLeft,
+            NoteType::DonRight,
+            NoteType::KaLeft,
+            NoteType::KaRight,
+        ];
+
         let notes: Vec<Note> = filtered
             .into_iter()
-            .map(|beat| {
-                // Map samples to note types:
-                // Low sample numbers (1-4) are typically bass/kick drums -> Don
-                // Higher sample numbers are typically snare/hi-hat -> Ka
-                let note_type = if beat.sample <= 4 {
-                    NoteType::Don
-                } else {
-                    NoteType::Ka
-                };
-
+            .enumerate()
+            .map(|(i, beat)| {
                 Note {
-                    note_type,
+                    note_type: note_types[i % 4],
                     time_ms: beat.time_ms + lead_in_ms,
                     hit: false,
                 }

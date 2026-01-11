@@ -181,7 +181,7 @@ pub fn extract_beats(mod_data: &ModData) -> Vec<BeatEvent> {
             let time_ms = total_rows * (current_speed as u64) * ms_per_tick;
 
             // Check each channel for note triggers and speed changes
-            for note in row.iter() {
+            for (_ch, note) in row.iter().enumerate() {
                 // Check for speed change effect
                 if let Some(new_speed) = note.get_speed_change() {
                     current_speed = new_speed;
