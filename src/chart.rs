@@ -156,20 +156,35 @@ impl Chart {
         // Filter based on difficulty (larger gap = fewer notes)
         let filtered = filter_beats_for_gameplay(beats, difficulty.min_gap_ms());
 
-        // Cycle through all 4 note types for balanced distribution
-        let note_types = [
-            NoteType::DonLeft,
-            NoteType::DonRight,
-            NoteType::KaLeft,
-            NoteType::KaRight,
-        ];
+        // Calculate median period for pitch-based L/R split
+        let median_period = {
+            let mut periods: Vec<u16> = filtered.iter().map(|b| b.period).collect();
+            periods.sort();
+            if periods.is_empty() {
+                428 // Default to middle C period if no notes
+            } else {
+                periods[periods.len() / 2]
+            }
+        };
 
+        // Map notes based on instrument type (Don/Ka) and pitch (Left/Right)
+        // Don = bass/kick/tom, Ka = everything else
+        // Left = lower pitch (higher period), Right = higher pitch (lower period)
         let notes: Vec<Note> = filtered
             .into_iter()
-            .enumerate()
-            .map(|(i, beat)| {
+            .map(|beat| {
+                let is_don = mod_data.is_don_sample(beat.sample);
+                let is_low_pitch = beat.period >= median_period;
+
+                let note_type = match (is_don, is_low_pitch) {
+                    (true, true) => NoteType::DonLeft,   // D - bass, low pitch
+                    (true, false) => NoteType::DonRight, // F - bass, high pitch
+                    (false, true) => NoteType::KaLeft,   // J - other, low pitch
+                    (false, false) => NoteType::KaRight, // K - other, high pitch
+                };
+
                 Note {
-                    note_type: note_types[i % 4],
+                    note_type,
                     time_ms: beat.time_ms,
                     hit: false,
                 }

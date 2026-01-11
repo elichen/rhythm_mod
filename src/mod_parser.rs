@@ -13,6 +13,8 @@ pub struct BeatEvent {
     pub time_ms: u64,
     /// Sample number (1-31) that triggered
     pub sample: u8,
+    /// Period value (pitch) - lower = higher pitch
+    pub period: u16,
 }
 
 /// Parsed MOD file data
@@ -20,6 +22,22 @@ pub struct ModData {
     pub song_length: u8,
     pub pattern_table: [u8; 128],
     pub patterns: Vec<Pattern>,
+    /// Sample names (up to 31)
+    pub sample_names: Vec<String>,
+}
+
+impl ModData {
+    /// Check if a sample is a "Don" sound (bass/kick/tom) based on its name
+    pub fn is_don_sample(&self, sample_num: u8) -> bool {
+        if sample_num == 0 || sample_num as usize > self.sample_names.len() {
+            return false;
+        }
+        let name = &self.sample_names[sample_num as usize - 1];
+        let lower = name.to_lowercase();
+        // Bass drum and tom → Don (center hit)
+        // Snare is Ka (rim hit), not Don
+        lower.contains("bass") || lower.contains("kick") || lower.contains("tom")
+    }
 }
 
 /// A pattern with 64 rows of notes
@@ -57,7 +75,7 @@ pub fn parse_mod_file(path: &Path) -> anyhow::Result<ModData> {
 
     // Detect format: check for format identifier at offset 1080
     // If present, it's a 31-sample MOD; otherwise 15-sample
-    let (_num_samples, num_channels, song_length_offset, pattern_table_offset, pattern_start) =
+    let (num_samples, num_channels, song_length_offset, pattern_table_offset, pattern_start) =
         if data.len() >= 1084 {
             let format_id = &data[1080..1084];
             match format_id {
@@ -74,6 +92,25 @@ pub fn parse_mod_file(path: &Path) -> anyhow::Result<ModData> {
             // File too small for 31-sample, assume 15-sample
             (15, 4, 470, 472, 600)
         };
+
+    // Parse sample names (each sample record is 30 bytes, name is first 22 bytes)
+    let mut sample_names = Vec::with_capacity(num_samples);
+    for i in 0..num_samples {
+        let name_offset = 20 + i * 30;
+        if name_offset + 22 <= data.len() {
+            let name_bytes = &data[name_offset..name_offset + 22];
+            let name = name_bytes
+                .iter()
+                .take_while(|&&b| b != 0)
+                .map(|&b| b as char)
+                .collect::<String>()
+                .trim()
+                .to_string();
+            sample_names.push(name);
+        } else {
+            sample_names.push(String::new());
+        }
+    }
 
     // Song length
     let song_length = data[song_length_offset];
@@ -128,6 +165,7 @@ pub fn parse_mod_file(path: &Path) -> anyhow::Result<ModData> {
         song_length,
         pattern_table,
         patterns,
+        sample_names,
     })
 }
 
@@ -192,6 +230,7 @@ pub fn extract_beats(mod_data: &ModData) -> Vec<BeatEvent> {
                     events.push(BeatEvent {
                         time_ms,
                         sample: note.sample,
+                        period: note.period,
                     });
                 }
             }
