@@ -256,7 +256,16 @@ mod tests {
     #[test]
     fn test_border_positions() {
         // Test at multiple sizes to catch width-dependent bugs
-        for (width, height) in [(80, 30), (120, 40), (204, 58)] {
+        // Include odd widths to catch integer division issues
+        for (width, height) in [
+            (79, 30),   // Odd width
+            (80, 30),   // Standard
+            (81, 30),   // Odd width
+            (82, 34),   // User's terminal size
+            (120, 40),  // Medium
+            (121, 40),  // Odd width
+            (204, 58),  // Large
+        ] {
             test_borders_at_size(width, height);
         }
     }
@@ -325,6 +334,54 @@ mod tests {
 
         println!("\n======== BORDER CHECK COMPLETE ========\n");
 
+        // Check border colors for consistency
+        println!("======== BORDER COLOR CHECK ========");
+        let mut expected_color: Option<ratatui::style::Color> = None;
+        let mut color_mismatches = Vec::new();
+
+        for y in 0..height {
+            let left_cell = buffer.get(0, y as u16);
+            let left_fg = left_cell.fg;
+            let right_cell = buffer.get((width - 1) as u16, y as u16);
+            let right_fg = right_cell.fg;
+
+            if expected_color.is_none() {
+                expected_color = Some(left_fg);
+                println!("Expected border color: {:?}", left_fg);
+            }
+
+            if left_fg != expected_color.unwrap() {
+                color_mismatches.push(format!(
+                    "Row {:2}: LEFT  border color {:?}, expected {:?}",
+                    y, left_fg, expected_color.unwrap()
+                ));
+            }
+            if right_fg != expected_color.unwrap() {
+                color_mismatches.push(format!(
+                    "Row {:2}: RIGHT border color {:?}, expected {:?}",
+                    y, right_fg, expected_color.unwrap()
+                ));
+            }
+        }
+
+        if color_mismatches.is_empty() {
+            println!("✓ All borders have consistent color: {:?}", expected_color.unwrap());
+        } else {
+            println!("✗ COLOR MISMATCHES FOUND:");
+            for m in &color_mismatches {
+                println!("  {}", m);
+            }
+        }
+
+        // Debug: Print colors for row 2 (gauge line) first 15 chars
+        println!("\n=== ROW 2 (GAUGE LINE) COLORS ===");
+        for x in 0..15.min(width) {
+            let cell = buffer.get(x as u16, 2);
+            println!("  Col {:2}: '{}' fg={:?}", x, cell.symbol(), cell.fg);
+        }
+
+        println!("======== BORDER COLOR CHECK COMPLETE ========\n");
+
         // Also print a few rows to visually inspect
         if width >= 200 {
             println!("=== VISUAL DUMP OF ROWS ===");
@@ -358,6 +415,206 @@ mod tests {
                 println!("  - {}", err);
             }
             panic!("Border position errors found at {}x{}: {}", width, height, errors.len());
+        }
+    }
+
+    /// Dump a row character by character for debugging
+    fn dump_row_chars(buffer: &ratatui::buffer::Buffer, row: u16, width: usize) {
+        println!("  Character dump for row {}:", row);
+        for x in 0..width {
+            let cell = buffer.get(x as u16, row);
+            let symbol = cell.symbol();
+            let desc = match symbol {
+                "│" | "┌" | "┐" | "└" | "┘" | "├" | "┤" => "border",
+                " " => "SPACE",
+                "─" | "═" => "horiz",
+                "░" => "empty",
+                "█" | "▓" | "▒" => "block",
+                "▐" | "▌" => "half",
+                _ => "content",
+            };
+            if symbol == " " {
+                println!("    Col {:3}: ' ' ({})", x, desc);
+            }
+        }
+    }
+
+    /// Check a row for unexpected gaps
+    /// Returns errors only for actual problems, not intentional padding
+    fn check_row_for_gaps(
+        buffer: &ratatui::buffer::Buffer,
+        row: u16,
+        width: usize,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        // Get characters at key positions
+        let col_w1 = buffer.get((width - 1) as u16, row).symbol();
+        let col_w2 = buffer.get((width - 2) as u16, row).symbol();
+
+        // Check that the right border exists
+        let is_right_border = col_w1 == "│" || col_w1 == "┤" || col_w1 == "┐" || col_w1 == "┘";
+        if !is_right_border {
+            errors.push(format!(
+                "Row {}: Missing right border! Found '{}' at col {}",
+                row, col_w1, width - 1
+            ));
+        }
+
+        // The ` │` margin (1 space before border) is expected for most rows
+        // Only flag if there's MORE than expected gap (e.g., missing content)
+        // We can't easily detect this without knowing the expected content,
+        // so we just verify borders are in place
+
+        errors
+    }
+
+    #[test]
+    fn test_content_fill() {
+        // Test that content fills properly without gaps at various sizes
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        use crate::chart::Chart;
+        use crate::game::Game;
+        use crate::render::render;
+
+        for (width, height) in [
+            (79, 30),
+            (80, 30),
+            (81, 30),
+            (82, 34),
+            (120, 40),
+            (121, 40),
+        ] {
+            println!("\n======== CONTENT FILL CHECK {}x{} ========", width, height);
+
+            let backend = TestBackend::new(width, height);
+            let mut terminal = Terminal::new(backend).unwrap();
+
+            let chart = Chart::generic("Test Song", 120.0);
+            let game = Game::new(chart);
+
+            terminal.draw(|f| render(f, &game)).unwrap();
+
+            let buffer = terminal.backend().buffer();
+            let width_usize = width as usize;
+
+            let mut all_gaps = Vec::new();
+
+            // Check each row for gaps
+            for row in 0..height {
+                let gaps = check_row_for_gaps(buffer, row, width_usize);
+                if !gaps.is_empty() {
+                    all_gaps.extend(gaps.clone());
+                    // Dump the problematic row
+                    dump_row_chars(buffer, row, width_usize);
+                }
+            }
+
+            // Also check specific rows we know should have content
+
+            // Game area track rows (approximately rows 5-10)
+            println!("\n=== Game Area Track Rows ===");
+            for row in 5..11.min(height) {
+                let row_content: String = (0..width)
+                    .map(|x| buffer.get(x, row).symbol().to_string())
+                    .collect();
+                let last_content_col = (0..width)
+                    .rev()
+                    .find(|&x| {
+                        let s = buffer.get(x, row).symbol();
+                        s != " " && s != "│" && s != "┤"
+                    });
+                let first_content_col = (0..width)
+                    .find(|&x| {
+                        let s = buffer.get(x, row).symbol();
+                        s != " " && s != "│" && s != "├"
+                    });
+
+                println!(
+                    "  Row {:2}: first_content={:?}, last_content={:?}",
+                    row, first_content_col, last_content_col
+                );
+
+                // Check if there's a gap between last content and right border
+                if let Some(last_col) = last_content_col {
+                    let border_col = width - 1;
+                    let gap = border_col as i32 - last_col as i32 - 1;
+                    if gap > 2 {
+                        println!("    WARNING: Gap of {} chars before right border", gap);
+                        all_gaps.push(format!("Row {}: Gap of {} before right border", row, gap));
+                    }
+                }
+            }
+
+            // Equalizer rows (approximately rows 13-21)
+            println!("\n=== Equalizer Rows ===");
+            for row in 13..22.min(height) {
+                let last_content_col = (0..width)
+                    .rev()
+                    .find(|&x| {
+                        let s = buffer.get(x, row).symbol();
+                        s != " " && s != "│" && s != "┤"
+                    });
+
+                if let Some(last_col) = last_content_col {
+                    let border_col = width - 1;
+                    let gap = border_col as i32 - last_col as i32 - 1;
+                    // Equalizer should have symmetric padding, so gap should equal left padding
+                    let first_content_col = (0..width)
+                        .find(|&x| {
+                            let s = buffer.get(x, row).symbol();
+                            s != " " && s != "│" && s != "├"
+                        });
+                    if let Some(first_col) = first_content_col {
+                        let left_padding = first_col as i32 - 1; // minus the border
+                        let right_padding = gap;
+                        let diff = (left_padding - right_padding).abs();
+                        if diff > 1 {
+                            println!(
+                                "  Row {:2}: ASYMMETRIC padding: left={}, right={}",
+                                row, left_padding, right_padding
+                            );
+                            all_gaps.push(format!(
+                                "Row {}: Asymmetric EQ padding left={} right={}",
+                                row, left_padding, right_padding
+                            ));
+                        } else {
+                            println!(
+                                "  Row {:2}: padding left={}, right={} (symmetric)",
+                                row, left_padding, right_padding
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Print the last 10 characters of key rows to verify borders
+            println!("\n=== Right Edge Visual (last 10 chars) ===");
+            for row in [5, 6, 7, 8, 13, 14, 20, 21] {
+                if row >= height {
+                    continue;
+                }
+                let start = (width as usize).saturating_sub(10);
+                let end_chars: String = (start..width as usize)
+                    .map(|x| {
+                        let s = buffer.get(x as u16, row).symbol();
+                        if s == " " { "·" } else { s } // Show spaces as dots
+                    })
+                    .collect();
+                println!("  Row {:2}: ...{}", row, end_chars);
+            }
+
+            println!("\n======== CONTENT FILL CHECK COMPLETE ========\n");
+
+            // For now, just print warnings but don't fail the test
+            // This helps identify gaps without breaking the build
+            if !all_gaps.is_empty() {
+                println!("POTENTIAL GAPS FOUND at {}x{}:", width, height);
+                for gap in &all_gaps {
+                    println!("  - {}", gap);
+                }
+            }
         }
     }
 }

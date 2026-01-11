@@ -1,3 +1,6 @@
+use std::path::Path;
+use crate::mod_parser::{parse_mod_file, extract_beats, filter_beats_for_gameplay};
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NoteType {
     Don, // Center hit (red) - D/F keys
@@ -11,11 +14,20 @@ pub struct Note {
     pub hit: bool, // Whether this note has been processed
 }
 
+/// Raw beat event for EQ visualization (includes sample info)
+#[derive(Clone)]
+pub struct EqBeat {
+    pub time_ms: u64,
+    pub sample: u8,
+}
+
 pub struct Chart {
     pub title: String,
     #[allow(dead_code)]
     pub bpm: f32,
     pub notes: Vec<Note>,
+    /// All beat events for EQ visualization (unfiltered, includes sample numbers)
+    pub eq_beats: Vec<EqBeat>,
 }
 
 impl Chart {
@@ -94,6 +106,66 @@ impl Chart {
             title: title.to_string(),
             bpm,
             notes,
+            eq_beats: Vec::new(), // No EQ data for generic charts
         }
+    }
+
+    /// Creates a chart synchronized to a MOD file's beat pattern
+    pub fn from_mod_file(path: &Path, title: &str) -> anyhow::Result<Self> {
+        let mod_data = parse_mod_file(path)?;
+        let beats = extract_beats(&mod_data);
+
+        // Store all beats for EQ visualization (with lead-in offset)
+        let lead_in_ms: u64 = 2000;
+        let eq_beats: Vec<EqBeat> = beats
+            .iter()
+            .map(|b| EqBeat {
+                time_ms: b.time_ms + lead_in_ms,
+                sample: b.sample,
+            })
+            .collect();
+
+        // Filter to avoid notes that are too close together (min 100ms gap)
+        let filtered = filter_beats_for_gameplay(beats, 100);
+
+        let notes: Vec<Note> = filtered
+            .into_iter()
+            .map(|beat| {
+                // Map samples to note types:
+                // Low sample numbers (1-4) are typically bass/kick drums -> Don
+                // Higher sample numbers are typically snare/hi-hat -> Ka
+                let note_type = if beat.sample <= 4 {
+                    NoteType::Don
+                } else {
+                    NoteType::Ka
+                };
+
+                Note {
+                    note_type,
+                    time_ms: beat.time_ms + lead_in_ms,
+                    hit: false,
+                }
+            })
+            .collect();
+
+        // Estimate BPM from note timing (rough approximation)
+        let bpm = if notes.len() >= 2 {
+            let total_time = notes.last().unwrap().time_ms - notes.first().unwrap().time_ms;
+            let beats_count = notes.len() as f32;
+            if total_time > 0 {
+                (beats_count * 60_000.0) / total_time as f32
+            } else {
+                120.0
+            }
+        } else {
+            120.0
+        };
+
+        Ok(Chart {
+            title: title.to_string(),
+            bpm,
+            notes,
+            eq_beats,
+        })
     }
 }

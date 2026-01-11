@@ -5,6 +5,7 @@ mod chart;
 mod game;
 mod input;
 mod menu;
+mod mod_parser;
 mod render;
 
 use std::io::{self, stdout};
@@ -79,22 +80,26 @@ fn play_song(
     audio: &mut Option<Audio>,
     mod_path: &Path,
 ) -> Result<()> {
-    // Load and play the MOD file
-    if let Some(audio) = audio {
-        if let Err(e) = audio.play_mod_file(mod_path) {
-            eprintln!("Warning: Could not play MOD file: {}", e);
-        }
-    }
-
     // Get the song name for the chart title
     let song_name = mod_path
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "Unknown".to_string());
 
-    // Create a generic chart (we'll sync based on the song's apparent tempo)
-    let chart = Chart::generic(&song_name, 120.0); // Default to 120 BPM
+    // Parse chart BEFORE starting audio (so parsing time doesn't cause desync)
+    let chart = match Chart::from_mod_file(mod_path, &song_name) {
+        Ok(c) => c,
+        Err(_) => Chart::generic(&song_name, 120.0), // Fallback to generic
+    };
     let mut game = Game::new(chart);
+
+    // Start audio and game timer together for proper sync
+    if let Some(audio) = audio {
+        if let Err(e) = audio.play_mod_file(mod_path) {
+            eprintln!("Warning: Could not play MOD file: {}", e);
+        }
+    }
+    game.start(); // Reset timer to NOW, right after audio starts
 
     // Game loop
     run_game(terminal, &mut game, audio.as_ref())

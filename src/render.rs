@@ -12,24 +12,32 @@ use crate::game::{Game, HitResult};
 const SCROLL_WINDOW_MS: u64 = 2200;
 const NOTE_WIDTH: usize = 5;
 
-// Color palette - neon arcade
-const COLOR_DON: Color = Color::Rgb(255, 82, 82);      // Hot red
-const COLOR_KA: Color = Color::Rgb(0, 229, 255);       // Electric cyan
-const COLOR_GOLD: Color = Color::Rgb(255, 215, 0);     // Gold accent
-const COLOR_TRACK: Color = Color::Rgb(60, 60, 80);     // Muted purple-gray
-const COLOR_DIM: Color = Color::Rgb(100, 100, 130);     // Border color - visible on dark bg
-const COLOR_BG_ACCENT: Color = Color::Rgb(30, 30, 45); // Dark purple
+// Color palette - using ANSI colors for macOS Terminal.app compatibility
+// (Terminal.app doesn't support true color/RGB - only 16 ANSI + 256 indexed)
+const COLOR_DON: Color = Color::Red;                   // Red for DON drums
+const COLOR_KA: Color = Color::Cyan;                   // Cyan for KA drums
+const COLOR_GOLD: Color = Color::Yellow;              // Yellow accent
+const COLOR_TRACK: Color = Color::DarkGray;           // Track background
+const COLOR_DIM: Color = Color::DarkGray;             // Border color
+const COLOR_BG: Color = Color::Black;                 // Explicit background
+const COLOR_BG_ACCENT: Color = Color::Black;          // Dark accent (same as bg for compatibility)
 
-// Equalizer channel colors - classic MOD tracker style
+// Equalizer channel colors - using ANSI colors for compatibility
 const EQ_COLORS: [Color; 4] = [
-    Color::Rgb(255, 100, 100),  // CH1 - Red
-    Color::Rgb(100, 255, 150),  // CH2 - Green
-    Color::Rgb(100, 180, 255),  // CH3 - Blue
-    Color::Rgb(255, 220, 100),  // CH4 - Yellow
+    Color::LightRed,            // CH1 - Red
+    Color::LightGreen,          // CH2 - Green
+    Color::LightBlue,           // CH3 - Blue
+    Color::LightYellow,         // CH4 - Yellow
 ];
 
 pub fn render(frame: &mut Frame, game: &Game) {
     let size = frame.area();
+
+    // Clear background with explicit black to ensure consistent colors on macOS Terminal
+    frame.render_widget(
+        Block::default().style(Style::default().bg(COLOR_BG)),
+        size,
+    );
 
     // Main layout
     let chunks = Layout::default()
@@ -68,11 +76,15 @@ fn render_header(frame: &mut Frame, area: Rect, game: &Game) {
         Color::White
     };
 
-    // Top border
+    // Top border (use spans for consistent styling)
     let border_top = "─".repeat(area.width.saturating_sub(2) as usize);
+    let top_border = Line::from(vec![
+        Span::styled("┌", Style::default().fg(COLOR_DIM)),
+        Span::styled(&border_top, Style::default().fg(COLOR_DIM)),
+        Span::styled("┐", Style::default().fg(COLOR_DIM)),
+    ]);
     frame.render_widget(
-        Paragraph::new(format!("┌{}┐", border_top))
-            .style(Style::default().fg(COLOR_DIM)),
+        Paragraph::new(top_border),
         Rect::new(area.x, area.y, area.width, 1),
     );
 
@@ -127,10 +139,14 @@ fn render_header(frame: &mut Frame, area: Rect, game: &Game) {
         Rect::new(area.x, area.y + 2, area.width, 1),
     );
 
-    // Bottom border
+    // Bottom border (use spans for consistent styling)
+    let bottom_border = Line::from(vec![
+        Span::styled("├", Style::default().fg(COLOR_DIM)),
+        Span::styled(&border_top, Style::default().fg(COLOR_DIM)),
+        Span::styled("┤", Style::default().fg(COLOR_DIM)),
+    ]);
     frame.render_widget(
-        Paragraph::new(format!("├{}┤", border_top))
-            .style(Style::default().fg(COLOR_DIM)),
+        Paragraph::new(bottom_border),
         Rect::new(area.x, area.y + 3, area.width, 1),
     );
 }
@@ -245,17 +261,25 @@ fn render_game_area(frame: &mut Frame, area: Rect, game: &Game) {
         );
     }
 
-    // Top and bottom of game area
+    // Top and bottom of game area (use spans for consistent styling)
     let border = "─".repeat(area.width.saturating_sub(2) as usize);
     let inner_width = area.width.saturating_sub(2) as usize;
+    let game_top = Line::from(vec![
+        Span::styled("│", Style::default().fg(COLOR_DIM)),
+        Span::raw(" ".repeat(inner_width)),
+        Span::styled("│", Style::default().fg(COLOR_DIM)),
+    ]);
     frame.render_widget(
-        Paragraph::new(format!("│{}│", " ".repeat(inner_width)))
-            .style(Style::default().fg(COLOR_DIM)),
+        Paragraph::new(game_top),
         Rect::new(area.x, area.y, area.width, 1),
     );
+    let game_bottom = Line::from(vec![
+        Span::styled("├", Style::default().fg(COLOR_DIM)),
+        Span::styled(&border, Style::default().fg(COLOR_DIM)),
+        Span::styled("┤", Style::default().fg(COLOR_DIM)),
+    ]);
     frame.render_widget(
-        Paragraph::new(format!("├{}┤", border))
-            .style(Style::default().fg(COLOR_DIM)),
+        Paragraph::new(game_bottom),
         Rect::new(area.x, area.y + 8, area.width, 1),
     );
 }
@@ -493,11 +517,15 @@ fn render_footer(frame: &mut Frame, area: Rect) {
         Rect::new(area.x, area.y, area.width, 1),
     );
 
-    // Bottom border
+    // Bottom border (use spans for consistent styling)
     let border = "─".repeat(area.width.saturating_sub(2) as usize);
+    let bottom_border = Line::from(vec![
+        Span::styled("└", Style::default().fg(COLOR_DIM)),
+        Span::styled(&border, Style::default().fg(COLOR_DIM)),
+        Span::styled("┘", Style::default().fg(COLOR_DIM)),
+    ]);
     frame.render_widget(
-        Paragraph::new(format!("└{}┘", border))
-            .style(Style::default().fg(COLOR_DIM)),
+        Paragraph::new(bottom_border),
         Rect::new(area.x, area.y + 1, area.width, 1),
     );
 }

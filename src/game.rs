@@ -25,6 +25,10 @@ pub struct Game {
     pub eq_levels: [f32; 4],
     pub eq_targets: [f32; 4],
     pub last_hit_time: u64,
+    // For real EQ: track position in beat list
+    eq_beat_index: usize,
+    // Recent sample triggers for each EQ channel (decay over time)
+    eq_channel_energy: [f32; 4],
 }
 
 // Timing windows in milliseconds
@@ -48,56 +52,60 @@ impl Game {
             eq_levels: [0.0; 4],
             eq_targets: [0.0; 4],
             last_hit_time: 0,
+            eq_beat_index: 0,
+            eq_channel_energy: [0.0; 4],
         }
     }
 
-    /// Update equalizer animation (call each frame)
+    /// Map a sample number to an EQ channel (0-3)
+    /// Low samples = bass (left), high samples = treble (right)
+    fn sample_to_channel(sample: u8) -> usize {
+        match sample {
+            1..=3 => 0,   // Bass/kick -> channel 0
+            4..=6 => 1,   // Low-mid -> channel 1
+            7..=10 => 2,  // High-mid -> channel 2
+            _ => 3,       // Hi-hat/high -> channel 3
+        }
+    }
+
+    /// Update equalizer based on real MOD playback
     pub fn update_equalizer(&mut self) {
         let time = self.current_time_ms();
 
-        // Generate pseudo-random targets based on time for ambient animation
-        // Each channel updates at different rates for organic movement
-        let rates = [67, 83, 53, 97]; // Prime numbers for varied timing
-
-        for i in 0..4 {
-            // Update target periodically
-            if time % rates[i] < 20 {
-                // Multiple sine waves for more organic movement
-                let seed1 = (time as f32 / rates[i] as f32) + (i as f32 * 1.7);
-                let seed2 = (time as f32 / (rates[i] as f32 * 0.7)) + (i as f32 * 2.3);
-                let wave1 = (seed1 * 0.15).sin() * 0.5 + 0.5;
-                let wave2 = (seed2 * 0.23).sin() * 0.3 + 0.5;
-                let base = (wave1 * 0.6 + wave2 * 0.4) * 0.5; // Stronger base animation
-
-                // BIG boost when hitting notes
-                let time_since_hit = time.saturating_sub(self.last_hit_time);
-                let hit_boost = if time_since_hit < 150 {
-                    // Sharp attack, quick decay
-                    let t = time_since_hit as f32 / 150.0;
-                    0.7 * (1.0 - t * t) // Quadratic decay
-                } else if time_since_hit < 400 {
-                    0.2 // Sustain
-                } else {
-                    0.0
-                };
-
-                // Combo adds sustained energy - more dramatic
-                let combo_boost = (self.combo as f32 / 30.0).min(0.4);
-
-                // Randomize which channel gets the most energy
-                let channel_variance = ((seed1 * 3.0).sin() * 0.15).abs();
-
-                self.eq_targets[i] = (base + hit_boost + combo_boost + channel_variance).min(1.0);
+        // Process any beats that have occurred since last update
+        while self.eq_beat_index < self.chart.eq_beats.len() {
+            let beat = &self.chart.eq_beats[self.eq_beat_index];
+            if beat.time_ms <= time {
+                // This beat just happened - boost the appropriate channel
+                let channel = Self::sample_to_channel(beat.sample);
+                self.eq_channel_energy[channel] = 1.0;
+                self.eq_beat_index += 1;
+            } else {
+                break;
             }
+        }
+
+        // Update each channel
+        for i in 0..4 {
+            // Decay the channel energy
+            self.eq_channel_energy[i] *= 0.85; // Fast decay
+
+            // Set target based on current energy
+            self.eq_targets[i] = self.eq_channel_energy[i];
 
             // Smooth interpolation toward target
             let diff = self.eq_targets[i] - self.eq_levels[i];
             if diff.abs() > 0.005 {
-                // Rise FAST, fall slow (punchy VU meter feel)
-                let speed = if diff > 0.0 { 0.45 } else { 0.06 };
+                // Rise FAST, fall slower (punchy VU meter feel)
+                let speed = if diff > 0.0 { 0.6 } else { 0.15 };
                 self.eq_levels[i] += diff * speed;
             }
         }
+    }
+
+    /// Start the game timer (call right when audio starts)
+    pub fn start(&mut self) {
+        self.start_time = Instant::now();
     }
 
     /// Get current game time in milliseconds
