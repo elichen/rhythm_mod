@@ -10,6 +10,8 @@ use ratatui::{
     Frame,
 };
 
+use crate::chart::Difficulty;
+
 pub struct SongEntry {
     pub path: PathBuf,
     pub name: String,
@@ -19,6 +21,7 @@ pub struct Menu {
     pub songs: Vec<SongEntry>,
     pub selected: usize,
     pub list_state: ListState,
+    pub difficulty: Difficulty,
 }
 
 impl Menu {
@@ -53,7 +56,16 @@ impl Menu {
             songs,
             selected: 0,
             list_state,
+            difficulty: Difficulty::default(),
         }
+    }
+
+    pub fn cycle_difficulty(&mut self) {
+        self.difficulty = match self.difficulty {
+            Difficulty::Easy => Difficulty::Medium,
+            Difficulty::Medium => Difficulty::Hard,
+            Difficulty::Hard => Difficulty::Easy,
+        };
     }
 
     pub fn up(&mut self) {
@@ -91,7 +103,12 @@ pub fn render_menu(frame: &mut Frame, menu: &mut Menu) {
         ])
         .split(size);
 
-    // Header
+    // Header with difficulty
+    let difficulty_color = match menu.difficulty {
+        Difficulty::Easy => Color::Green,
+        Difficulty::Medium => Color::Yellow,
+        Difficulty::Hard => Color::Red,
+    };
     let title = vec![
         Line::from(""),
         Line::from(Span::styled(
@@ -100,10 +117,13 @@ pub fn render_menu(frame: &mut Frame, menu: &mut Menu) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::styled(
-            "Select a song",
-            Style::default().fg(Color::White),
-        )),
+        Line::from(vec![
+            Span::styled("Difficulty: ", Style::default().fg(Color::White)),
+            Span::styled(
+                format!("< {} >", menu.difficulty.name()),
+                Style::default().fg(difficulty_color).add_modifier(Modifier::BOLD),
+            ),
+        ]),
     ];
     let header = Paragraph::new(title)
         .alignment(Alignment::Center)
@@ -158,9 +178,11 @@ pub fn render_menu(frame: &mut Frame, menu: &mut Menu) {
     // Footer
     let footer = Paragraph::new(Line::from(vec![
         Span::styled("[Up/Down]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Select   "),
+        Span::raw(" Song  "),
+        Span::styled("[Left/Right]", Style::default().fg(Color::Cyan)),
+        Span::raw(" Difficulty  "),
         Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
-        Span::raw(" Play   "),
+        Span::raw(" Play  "),
         Span::styled("[Esc]", Style::default().fg(Color::Cyan)),
         Span::raw(" Quit"),
     ]))
@@ -170,7 +192,7 @@ pub fn render_menu(frame: &mut Frame, menu: &mut Menu) {
 }
 
 pub enum MenuAction {
-    Select(PathBuf),
+    Select(PathBuf, Difficulty),
     Quit,
     None,
 }
@@ -181,9 +203,12 @@ pub fn handle_menu_input(menu: &mut Menu) -> anyhow::Result<MenuAction> {
             match key.code {
                 KeyCode::Up | KeyCode::Char('k') => menu.up(),
                 KeyCode::Down | KeyCode::Char('j') => menu.down(),
+                KeyCode::Left | KeyCode::Right | KeyCode::Char('h') | KeyCode::Char('l') => {
+                    menu.cycle_difficulty();
+                }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     if let Some(song) = menu.selected_song() {
-                        return Ok(MenuAction::Select(song.path.clone()));
+                        return Ok(MenuAction::Select(song.path.clone(), menu.difficulty));
                     }
                 }
                 KeyCode::Esc | KeyCode::Char('q') => return Ok(MenuAction::Quit),

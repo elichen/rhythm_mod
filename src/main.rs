@@ -21,7 +21,7 @@ use crossterm::{
 use ratatui::prelude::*;
 
 use audio::Audio;
-use chart::Chart;
+use chart::{Chart, Difficulty};
 use game::{Game, HitResult};
 use input::{poll_input, InputEvent};
 use menu::{handle_menu_input, render_menu, Menu, MenuAction};
@@ -61,9 +61,9 @@ fn run_app(
             terminal.draw(|f| render_menu(f, &mut menu))?;
 
             match handle_menu_input(&mut menu)? {
-                MenuAction::Select(path) => {
+                MenuAction::Select(path, difficulty) => {
                     // Play the selected song
-                    if let Err(e) = play_song(terminal, audio, &path) {
+                    if let Err(e) = play_song(terminal, audio, &path, difficulty) {
                         eprintln!("Error playing song: {}", e);
                     }
                     break; // Return to menu after song ends
@@ -79,6 +79,7 @@ fn play_song(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     audio: &mut Option<Audio>,
     mod_path: &Path,
+    difficulty: Difficulty,
 ) -> Result<()> {
     // Get the song name for the chart title
     let song_name = mod_path
@@ -87,7 +88,7 @@ fn play_song(
         .unwrap_or_else(|| "Unknown".to_string());
 
     // Parse chart BEFORE starting audio (so parsing time doesn't cause desync)
-    let chart = match Chart::from_mod_file(mod_path, &song_name) {
+    let chart = match Chart::from_mod_file(mod_path, &song_name, difficulty) {
         Ok(c) => c,
         Err(_) => Chart::generic(&song_name, 120.0), // Fallback to generic
     };

@@ -9,6 +9,33 @@ pub enum NoteType {
     KaRight,  // Rim hit right (blue) - K key
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum Difficulty {
+    Easy,
+    #[default]
+    Medium,
+    Hard,
+}
+
+impl Difficulty {
+    /// Minimum gap between notes in milliseconds
+    pub fn min_gap_ms(&self) -> u64 {
+        match self {
+            Difficulty::Easy => 300,   // Fewer notes
+            Difficulty::Medium => 150, // Moderate
+            Difficulty::Hard => 50,    // Many notes
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Difficulty::Easy => "Easy",
+            Difficulty::Medium => "Medium",
+            Difficulty::Hard => "Hard",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Note {
     pub note_type: NoteType,
@@ -112,7 +139,7 @@ impl Chart {
     }
 
     /// Creates a chart synchronized to a MOD file's beat pattern
-    pub fn from_mod_file(path: &Path, title: &str) -> anyhow::Result<Self> {
+    pub fn from_mod_file(path: &Path, title: &str, difficulty: Difficulty) -> anyhow::Result<Self> {
         let mod_data = parse_mod_file(path)?;
         let beats = extract_beats(&mod_data);
 
@@ -126,8 +153,8 @@ impl Chart {
             })
             .collect();
 
-        // Filter to avoid notes that are too close together (min 100ms gap)
-        let filtered = filter_beats_for_gameplay(beats, 100);
+        // Filter based on difficulty (larger gap = fewer notes)
+        let filtered = filter_beats_for_gameplay(beats, difficulty.min_gap_ms());
 
         // Cycle through all 4 note types for balanced distribution
         let note_types = [
