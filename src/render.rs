@@ -221,24 +221,24 @@ fn render_game_area(frame: &mut Frame, area: Rect, game: &Game) {
                 let note_at_x = notes.iter().find(|(nx, _)| *nx <= x && x < *nx + NOTE_WIDTH);
 
                 if let Some((_, note_type)) = note_at_x {
-                    // Draw note segment
+                    // Draw note as giant ASCII letter
                     let (chars, color) = match (note_type, track_row) {
-                        // DON LEFT - solid with D
-                        (NoteType::DonLeft, 0) => ("▄███▄", COLOR_DON),
-                        (NoteType::DonLeft, 1) => ("█ D █", COLOR_DON),
-                        (NoteType::DonLeft, 2) => ("▀███▀", COLOR_DON),
-                        // DON RIGHT - solid with F
-                        (NoteType::DonRight, 0) => ("▄███▄", COLOR_DON),
-                        (NoteType::DonRight, 1) => ("█ F █", COLOR_DON),
-                        (NoteType::DonRight, 2) => ("▀███▀", COLOR_DON),
-                        // KA LEFT - hollow with J
-                        (NoteType::KaLeft, 0) => ("▄▀▀▀▄", COLOR_KA),
-                        (NoteType::KaLeft, 1) => ("█ J █", COLOR_KA),
-                        (NoteType::KaLeft, 2) => ("▀▄▄▄▀", COLOR_KA),
-                        // KA RIGHT - hollow with K
-                        (NoteType::KaRight, 0) => ("▄▀▀▀▄", COLOR_KA),
-                        (NoteType::KaRight, 1) => ("█ K █", COLOR_KA),
-                        (NoteType::KaRight, 2) => ("▀▄▄▄▀", COLOR_KA),
+                        // D - big block letter
+                        (NoteType::DonLeft, 0) => ("█▀▀▄ ", COLOR_DON),
+                        (NoteType::DonLeft, 1) => ("█  █ ", COLOR_DON),
+                        (NoteType::DonLeft, 2) => ("█▄▄▀ ", COLOR_DON),
+                        // F - big block letter
+                        (NoteType::DonRight, 0) => ("█▀▀▀ ", COLOR_DON),
+                        (NoteType::DonRight, 1) => ("█▀▀  ", COLOR_DON),
+                        (NoteType::DonRight, 2) => ("█    ", COLOR_DON),
+                        // J - big block letter
+                        (NoteType::KaLeft, 0) => ("   █ ", COLOR_KA),
+                        (NoteType::KaLeft, 1) => ("   █ ", COLOR_KA),
+                        (NoteType::KaLeft, 2) => ("█▄▄█ ", COLOR_KA),
+                        // K - big block letter
+                        (NoteType::KaRight, 0) => ("█ ▄▀ ", COLOR_KA),
+                        (NoteType::KaRight, 1) => ("██▀  ", COLOR_KA),
+                        (NoteType::KaRight, 2) => ("█ ▀▄ ", COLOR_KA),
                         _ => ("     ", COLOR_TRACK),
                     };
                     spans.push(Span::styled(chars, Style::default().fg(color).add_modifier(Modifier::BOLD)));
