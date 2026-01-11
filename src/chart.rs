@@ -143,7 +143,7 @@ impl Chart {
             .map(|(i, beat)| {
                 Note {
                     note_type: note_types[i % 4],
-                    time_ms: beat.time_ms + lead_in_ms,
+                    time_ms: beat.time_ms,
                     hit: false,
                 }
             })
