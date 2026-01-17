@@ -296,15 +296,15 @@ fn render_equalizer(frame: &mut Frame, area: Rect, game: &Game) {
     // Bold retro tracker style - VU meter gradient (green → yellow → red)
     let bar_height = 7;
 
-    // VU meter color gradient (bottom to top)
+    // VU meter color gradient (bottom to top) using 256-color indices for consistency
     let vu_colors: [Color; 7] = [
-        Color::Rgb(0, 255, 100),    // Bottom - bright green
-        Color::Rgb(50, 255, 50),    // Green
-        Color::Rgb(150, 255, 0),    // Yellow-green
-        Color::Rgb(255, 255, 0),    // Yellow
-        Color::Rgb(255, 200, 0),    // Orange-yellow
-        Color::Rgb(255, 100, 0),    // Orange
-        Color::Rgb(255, 0, 50),     // Top - hot red (danger zone!)
+        Color::Indexed(46),   // Bright green
+        Color::Indexed(82),   // Green
+        Color::Indexed(118),  // Yellow-green
+        Color::Indexed(190),  // Yellow
+        Color::Indexed(220),  // Orange-yellow
+        Color::Indexed(208),  // Orange
+        Color::Indexed(196),  // Red (danger zone!)
     ];
 
     // Calculate centering: 4 channels × 12 chars (▐ + 10 + ▌) + 3 spaces between = 51 chars
@@ -337,7 +337,7 @@ fn render_equalizer(frame: &mut Frame, area: Rect, game: &Game) {
     for row in 0..bar_height {
         let threshold = 1.0 - (row as f32 / bar_height as f32);
         let row_color = vu_colors[row];
-        let dim_color = Color::Rgb(30, 30, 40);
+        let dim_color = Color::Indexed(235);
 
         let mut row_spans: Vec<Span> = vec![
             Span::styled("│", Style::default().fg(COLOR_DIM)),
