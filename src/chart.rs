@@ -143,12 +143,11 @@ impl Chart {
         let mod_data = parse_mod_file(path)?;
         let beats = extract_beats(&mod_data);
 
-        // Store all beats for EQ visualization (with lead-in offset)
-        let lead_in_ms: u64 = 2000;
+        // Store all beats for EQ visualization (synced to audio timing)
         let eq_beats: Vec<EqBeat> = beats
             .iter()
             .map(|b| EqBeat {
-                time_ms: b.time_ms + lead_in_ms,
+                time_ms: b.time_ms,
                 sample: b.sample,
             })
             .collect();

@@ -63,6 +63,32 @@ impl NoteData {
             None
         }
     }
+
+    /// Check if this is a SetTempo effect (Fxx where x >= 0x20)
+    pub fn get_tempo_change(&self) -> Option<u8> {
+        if self.effect == 0xF && self.effect_param >= 0x20 {
+            Some(self.effect_param)
+        } else {
+            None
+        }
+    }
+
+    /// Check if this is a Pattern Delay effect (EEx)
+    pub fn get_pattern_delay(&self) -> Option<u8> {
+        if self.effect == 0xE && (self.effect_param >> 4) == 0xE {
+            let delay = self.effect_param & 0x0F;
+            if delay > 0 { Some(delay) } else { None }
+        } else {
+            None
+        }
+    }
+}
+
+const DEFAULT_SPEED: u8 = 6;
+const DEFAULT_BPM: u16 = 125;
+
+fn bpm_to_tick_ms(bpm: u16) -> f64 {
+    2500.0 / bpm as f64
 }
 
 /// Parse a MOD file and extract beat events
@@ -199,43 +225,54 @@ fn parse_note(bytes: &[u8]) -> NoteData {
 /// Extract beat events from parsed MOD data
 pub fn extract_beats(mod_data: &ModData) -> Vec<BeatEvent> {
     let mut events = Vec::new();
-    let mut current_speed: u8 = 6; // Default MOD speed
-    let ms_per_tick: u64 = 20; // PAL timing: 50Hz = 20ms per tick
-
-    let mut total_rows: u64 = 0;
+    let mut current_speed: u32 = DEFAULT_SPEED as u32;
+    let mut current_bpm: u16 = DEFAULT_BPM;
+    let mut tick_ms = bpm_to_tick_ms(current_bpm);
+    // mod_player waits an extra tick before the first line is played.
+    let mut time_ms: f64 = tick_ms * (current_speed as f64 + 1.0);
 
     for pat_pos in 0..mod_data.song_length as usize {
         let pat_idx = mod_data.pattern_table[pat_pos] as usize;
 
         if pat_idx >= mod_data.patterns.len() {
-            total_rows += 64;
+            let row_ticks = current_speed.max(1) as f64;
+            time_ms += 64.0 * row_ticks * tick_ms;
             continue;
         }
 
         let pattern = &mod_data.patterns[pat_idx];
 
         for row in pattern.rows.iter() {
-            // Calculate time for this row
-            let time_ms = total_rows * (current_speed as u64) * ms_per_tick;
+            let row_time_ms = time_ms.round() as u64;
 
             // Check each channel for note triggers and speed changes
-            for (_ch, note) in row.iter().enumerate() {
-                // Check for speed change effect
-                if let Some(new_speed) = note.get_speed_change() {
-                    current_speed = new_speed;
-                }
-
-                // Check for note trigger (sample != 0 means a note plays)
+            for note in row.iter() {
                 if note.sample != 0 && note.period != 0 {
                     events.push(BeatEvent {
-                        time_ms,
+                        time_ms: row_time_ms,
                         sample: note.sample,
                         period: note.period,
                     });
                 }
             }
 
-            total_rows += 1;
+            let mut delay_ticks: u32 = 0;
+
+            for note in row.iter() {
+                if let Some(new_speed) = note.get_speed_change() {
+                    current_speed = new_speed as u32;
+                }
+                if let Some(new_bpm) = note.get_tempo_change() {
+                    current_bpm = new_bpm as u16;
+                    tick_ms = bpm_to_tick_ms(current_bpm);
+                }
+                if let Some(delay) = note.get_pattern_delay() {
+                    delay_ticks = delay as u32;
+                }
+            }
+
+            let row_ticks = current_speed.max(1) + delay_ticks;
+            time_ms += (row_ticks as f64) * tick_ms;
         }
     }
 
