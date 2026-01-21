@@ -2,8 +2,6 @@
 
 A terminal-based taiko drum rhythm game that plays classic Amiga MOD tracker music.
 
-![Rhythm MOD Screenshot](screenshot.png)
-
 ## Features
 
 - Play along to MOD tracker music files (4-channel ProTracker format)
